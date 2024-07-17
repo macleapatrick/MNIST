@@ -11,9 +11,12 @@ class Layer():
             self.inputs = input_size
             
         self.nodes = nodes
-        self.weights = np.random.rand(self.inputs, self.nodes) - 0.5
+        self.weights = self._xavier_init(self.inputs, nodes)
         self.activationFunction = activation
         self.layerid = layerid
+        
+    def _xavier_init(self, input_size, output_size):
+        return np.random.randn(input_size, output_size) * np.sqrt(2.0 / (input_size + output_size))
 
     def forwards(self, inputs):
         if self.addBias:
@@ -121,7 +124,6 @@ class Network():
             deltaNextLayer = self.backprop.delta[-1]
             deltaThisLayer = self.layers[layer].backwards(deltaNextLayer) * activations_wbias
             
-            #remove bias terms
             deltaThisLayer = deltaThisLayer[:, 1:]
             
             self.backprop.delta.append(deltaThisLayer)
@@ -134,8 +136,10 @@ class Network():
         for layer in range(self.llayers):
             gradient.append([])
             batch_samples = self.backprop.postActivations[layer].shape[0]
-            activations_wbias = np.insert(self.backprop.postActivations[layer], 0, 1, axis=1)
+            activations = self.backprop.postActivations[layer]
             
+            activations_wbias = np.insert(activations, 0, 1, axis=1)
+                
             for batch_sample in range(batch_samples):
                 
                 size = len(activations_wbias[batch_sample])
@@ -150,8 +154,10 @@ class Network():
                 
         return gradient
     
-    def sgd(self, gradient, learning_rate=0.000001):
+    def sgd(self, gradient, learning_rate=0.001):
         for i, layer in enumerate(self.layers):
+            if layer.weights.shape != gradient[i].shape:
+                raise(ValueError(f'{layer.weights.shape} not the same size as {gradient[i].shape}'))
             layer.weights = layer.weights - learning_rate*gradient[i]
         
     def calcLoss(self, y, t):
@@ -201,13 +207,13 @@ class ReLU():
         pass
     
     def calc(self, x):
-        return x * (x >= 0)
+        return np.maximum(0, x)
         
     def derivative(self, x):
-        return x * (x >= 0)
+        return np.where(x > 0, 1, 0)
     
     def reverse(self, x):
-        return x * (x >= 0)
+        return x
     
     
 class Linear():
@@ -218,35 +224,27 @@ class Linear():
         return x
         
     def derivative(self, x):
-        return x
+        return np.ones(x.shape)
     
     def reverse(self, x):
         return x
     
     
 class Sigmoid():
-    def __init(self):
+    def __init__(self):
         pass
     
     def calc(self, x):
         return 1 / (1 + np.exp(-x))
         
     def derivative(self, x):
-        return (1 / (1 + np.exp(-x)))*(1 - (1 / (1 + np.exp(-x))))
+        sigmoid_x = self.calc(x)
+        return sigmoid_x * (1 - sigmoid_x)
     
     def reverse(self, x):
-        if np.isscalar(x):
-            if x == 1:
-                return 5
-            elif x == 0:
-                return -5
-            else:
-                return -np.log(1/x - 1)
-        else:
-            x = x.astype(np.float64)
-            x[x == 1] = .99
-            x[x == 0] = .01
-            return np.round(-np.log(1/x - 1),3)
+        # Avoid issues with log and division by zero
+        x = np.clip(x, 1e-7, 1 - 1e-7)
+        return np.log(x / (1 - x))
     
 """
 class TanH():
@@ -261,9 +259,10 @@ class TanH():
 """
         
 
-network = [{'inputs':2, 'nodes':100, 'activation': ReLU()},
-           {'inputs':100, 'nodes':100,'activation': ReLU()},
-           {'inputs':100, 'nodes':1, 'activation': Linear()}]
+network = [{'inputs':1,  'nodes':10, 'activation': ReLU()},
+           {'inputs':10, 'nodes':10, 'activation': ReLU()},
+           {'inputs':10, 'nodes':10, 'activation': ReLU()},
+           {'inputs':10, 'nodes':1,   'activation': Linear()}]
 
 
 test_nn = Network(structure=network, loss=RegressionLoss())
@@ -271,31 +270,31 @@ test_nn = Network(structure=network, loss=RegressionLoss())
 inputs_train0 = np.random.randint(-5,5,(100,1)) + np.random.rand(100,1)
 inputs_train1 = inputs_train0**2
 inputs_train = np.hstack((inputs_train0, inputs_train1))
-targets_train = np.sin(inputs_train0) + 2 * np.random.rand(100,1)
+targets_train = np.sin(inputs_train0) + 2 * np.random.rand(100,1) - 1
 
 inputs_validate0 = np.random.randint(-5,5,(100,1)) + np.random.rand(100,1)
 inputs_validate1 = inputs_validate0**2
 inputs_validate = np.hstack((inputs_validate0, inputs_validate1))
-targets_validate = np.sin(inputs_validate0) + 2 * np.random.rand(100,1)
+targets_validate = np.sin(inputs_validate0) + 2 * np.random.rand(100,1) - 1
 
 test_nn.train()
 
-for i in range(0,1000):
+for i in range(0,100):
     print(f'epoch: {i}')
     test_nn.train()
-    out = test_nn.forward(inputs_train, targets_train)
+    out = test_nn.forward(inputs_train0, targets_train)
     print('training loss:' + str(sum(test_nn.backprop.loss)))
     grad = test_nn.backward()
     test_nn.sgd(grad)
     
-    out = test_nn.forward(inputs_validate, targets_validate)
+    out = test_nn.forward(inputs_validate0, targets_validate)
     print('validation loss:' + str(sum(test_nn.backprop.loss)))
-    out = test_nn.forward(inputs_train, targets_train)
 
 
 test_nn.evaluate()
-out_plot = test_nn.forward(inputs_validate)
-plt.scatter(inputs_validate0, targets_validate)
+out_plot = test_nn.forward(inputs_validate0)
+plt.scatter(inputs_train0, targets_train, color='y')
+plt.scatter(inputs_validate0, targets_validate, color='b')
 plt.scatter(inputs_validate0, out_plot, color='r')
 
         
