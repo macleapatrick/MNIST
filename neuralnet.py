@@ -36,10 +36,11 @@ class Layer():
         return np.matmul(inputs_wbias, self.weights)
     
     def backwards(self, backprop_errors):
-        if not self._canMultiply(backprop_errors, self.weights.T):
-            raise(ValueError(f'{backprop_errors.shape} can not be broadcast with {self.weights.T.shape}'))
+        if not self._canMultiply(backprop_errors, self.weights[1:].T):
+            raise(ValueError(f'{backprop_errors.shape} can not be broadcast with {self.weights[1:].T.shape}'))
         
-        return np.matmul(backprop_errors, self.weights.T)
+        #calculate backwards without bias weights
+        return np.matmul(backprop_errors, self.weights[1:].T)
     
     def activation(self, activations):
         if self.activationFunction:
@@ -62,17 +63,20 @@ class BackpropStructure():
         self.postActivations = []
         self.delta = []
         self.loss = []
+        self.wGradient = []
         
     def clear(self):
         self.preActivations = []
         self.postActivations = []
         self.delta = []
         self.loss = []
+        self.wGradient = []
 
 class Network():
     def __init__(self, structure, loss):
         self.llayers = len(structure)
         self.layers = []
+        self.batchSize = 0
         self.training = False
         self.lf = loss
         
@@ -88,6 +92,7 @@ class Network():
     def forward(self, inputs, targets=None):
         
         self.backprop.clear()
+        self.batchSize = len(inputs)
         
         x = inputs
         
@@ -118,41 +123,34 @@ class Network():
             
         #backpropogate deltas
         for layer in range(self.llayers-1,0,-1):
+            #calculate forward prop activations through the derivative of the layers activation function
             activations = self.layers[layer].activationFunction.derivative(self.backprop.preActivations[layer])
-            activations_wbias = np.insert(activations, 0, 1, axis=1)
             
-            deltaNextLayer = self.backprop.delta[-1]
-            deltaThisLayer = self.layers[layer].backwards(deltaNextLayer) * activations_wbias
+            #backprop deltas to previous layer
+            deltaNextLayer = self.backprop.delta[0]
+            deltaThisLayer = self.layers[layer].backwards(deltaNextLayer) * activations
             
-            deltaThisLayer = deltaThisLayer[:, 1:]
-            
-            self.backprop.delta.append(deltaThisLayer)
-                
-        self.backprop.delta.reverse()
-        
-        gradient = []
+            self.backprop.delta.insert(0, deltaThisLayer)
                 
         #calculate gradient for each weight
         for layer in range(self.llayers):
-            gradient.append([])
-            batch_samples = self.backprop.postActivations[layer].shape[0]
+            gradient = []
             activations = self.backprop.postActivations[layer]
             
+            #add bias activations back for gradient calculation
             activations_wbias = np.insert(activations, 0, 1, axis=1)
                 
-            for batch_sample in range(batch_samples):
+            for batch_sample in range(self.batchSize):
                 
-                size = len(activations_wbias[batch_sample])
-                activations_reshaped = activations_wbias[batch_sample].reshape((size,1))
-                
-                size = len(self.backprop.delta[layer][batch_sample])
-                delta_reshaped = self.backprop.delta[layer][batch_sample].reshape((1,size))
+                #Calculate gradient for every weight in this layer with every data sample
+                activations_reshaped = activations_wbias[batch_sample].reshape((len(activations_wbias[batch_sample]),1))
+                delta_reshaped = self.backprop.delta[layer][batch_sample].reshape((1,len(self.backprop.delta[layer][batch_sample])))
                     
-                gradient[layer].append(np.matmul(activations_reshaped, delta_reshaped))
+                gradient.append(np.matmul(activations_reshaped, delta_reshaped))
+            
+            self.backprop.wGradient.insert(layer, sum(gradient))
                 
-            gradient[layer] = sum(gradient[layer])
-                
-        return gradient
+        return self.backprop.wGradient
     
     def sgd(self, gradient, learning_rate=0.001):
         for i, layer in enumerate(self.layers):
@@ -259,9 +257,8 @@ class TanH():
 """
         
 
-network = [{'inputs':1,  'nodes':10, 'activation': ReLU()},
-           {'inputs':10, 'nodes':10, 'activation': ReLU()},
-           {'inputs':10, 'nodes':10, 'activation': ReLU()},
+network = [{'inputs':1,  'nodes':10, 'activation': Sigmoid()},
+           {'inputs':10, 'nodes':10, 'activation': Sigmoid()},
            {'inputs':10, 'nodes':1,   'activation': Linear()}]
 
 
@@ -279,7 +276,7 @@ targets_validate = np.sin(inputs_validate0) + 2 * np.random.rand(100,1) - 1
 
 test_nn.train()
 
-for i in range(0,100):
+for i in range(0,1000):
     print(f'epoch: {i}')
     test_nn.train()
     out = test_nn.forward(inputs_train0, targets_train)
