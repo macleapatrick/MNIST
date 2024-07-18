@@ -1,4 +1,5 @@
 import numpy as np
+import copy
 import matplotlib.pyplot as plt
 
 class Layer():
@@ -174,7 +175,14 @@ class Network():
         for i, layer in enumerate(self.layers):
             if layer.weights.shape != gradient[i].shape:
                 raise(ValueError(f'{layer.weights.shape} not the same size as {gradient[i].shape}'))
-            layer.weights = (1-lr*lb)*layer.weights - lr*gradient[i]
+                
+            #calculate weight decay term
+            weights_wo_bias = copy.deepcopy(layer.weights)
+            weights_wo_bias[0,:] = 0
+            weightDecay = lb*weights_wo_bias
+            
+            #gradient descent
+            layer.weights = layer.weights - (lr*gradient[i] + lr*weightDecay)
         
     def calcLoss(self, y, t):
         # weight decay needs to be reshaped to fit loss matrix shape
@@ -320,9 +328,21 @@ inputs_train00 = np.ones((100,1)) + np.random.randn(100,1)
 inputs_train01 = np.ones((100,1)) + np.random.randn(100,1)
 targets0 = np.zeros((100,1))
 
-inputs_train10 = 2*np.ones((100,1)) + np.random.randn(100,1)
-inputs_train11 = 2*np.ones((100,1)) + np.random.randn(100,1)
+inputs_train10 = np.ones((100,1)) + np.random.randn(100,1)
+inputs_train11 = np.ones((100,1)) + np.random.randn(100,1)
 target1 = np.ones((100,1))
+
+for i, n in enumerate(inputs_train10):
+    if n > 1:
+        inputs_train10[i] = n + 0.5
+    else:
+        inputs_train10[i] = n - 0.5
+        
+for i, n in enumerate(inputs_train11):
+    if n > 1:
+        inputs_train11[i] = n + 0.5
+    else:
+        inputs_train11[i] = n - 0.5
 
 X = np.zeros((200,3))
 X[:,0] = np.concatenate([inputs_train00, inputs_train10]).T
@@ -334,19 +354,19 @@ np.random.shuffle(X)
 test_nn.train()
 
 
-for i in range(0,1000):
+for i in range(0,250):
     print(f'epoch: {i}')
     test_nn.train()
     out = test_nn.forward(X[:,0:2], X[:,2])
     print('training loss:' + str(sum(test_nn.backprop.loss)))
     grad = test_nn.backward()
-    test_nn.sgd(grad, lr=0.001, lb=0)
+    test_nn.sgd(grad, lr=0.001, lb=1)
     
     
 test_nn.evaluate()
 
-x11 = np.linspace(np.min(X[:,0]), np.max(X[:,0]), 10)
-x22 = np.linspace(np.min(X[:,1]), np.max(X[:,1]), 10)
+x11 = np.linspace(np.min(X[:,0]), np.max(X[:,0]), 100)
+x22 = np.linspace(np.min(X[:,1]), np.max(X[:,1]), 100)
 
 grid = np.meshgrid(x11,x22)
 positions = np.vstack([grid[0].ravel(), grid[1].ravel()]).T
@@ -356,7 +376,7 @@ db_outs = test_nn.forward(db_inputs)
 
 x0 = X[np.where(X[:,2]==0),:]
 x1 = X[np.where(X[:,2]==1),:]
-z = db_outs.reshape((10,10))
+z = db_outs.reshape((100,100))
 
 plt.scatter(x0[0][:,0], x0[0][:,1], color='y')
 plt.scatter(x1[0][:,0], x1[0][:,1], color='b')
