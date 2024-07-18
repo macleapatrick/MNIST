@@ -77,6 +77,8 @@ class Network():
         self.llayers = len(structure)
         self.layers = []
         self.batchSize = 0
+        self.inputSize = 0
+        self.targetSize = 0
         self.training = False
         self.lf = loss
         
@@ -92,13 +94,26 @@ class Network():
     def forward(self, inputs, targets=None):
         
         self.backprop.clear()
-        self.batchSize = len(inputs)
+        self.batchSize = inputs.shape[0]
+        
+        try:
+            self.inputSize = inputs.shape[1]
+        except IndexError:
+            self.inputSize = 1
         
         x = inputs
         
         if self.training:
             self.backprop.postActivations.append(x)
             self.backprop.preActivations.append(x)
+            
+            try:
+                self.targetSize = targets.shape[1]
+            except IndexError:
+                self.targetSize = 1
+            
+            if targets.shape[0] != self.batchSize:
+                raise(TypeError, f'number of input batches: {self.batchSize} does not match number of output batches: {targets.shape[0]}')
             
         for layer in self.layers:
             x = layer.forwards(x)
@@ -114,7 +129,10 @@ class Network():
         outputs = x_act
             
         if self.training:
-            self.backprop.loss = self.calcLoss(layer.activationFunction.reverse(outputs), layer.activationFunction.reverse(targets))
+            outputs = outputs.reshape(self.batchSize, self.targetSize)
+            targets = targets.reshape(self.batchSize, self.targetSize)
+
+            self.backprop.loss = self.calcLoss(outputs, targets)
             self.backprop.delta.append(layer.activationFunction.reverse(outputs) - layer.activationFunction.reverse(targets))
 
         return outputs
@@ -152,11 +170,11 @@ class Network():
                 
         return self.backprop.wGradient
     
-    def sgd(self, gradient, learning_rate=0.001):
+    def sgd(self, gradient, lr=0.001, lb=0):
         for i, layer in enumerate(self.layers):
             if layer.weights.shape != gradient[i].shape:
                 raise(ValueError(f'{layer.weights.shape} not the same size as {gradient[i].shape}'))
-            layer.weights = layer.weights - learning_rate*gradient[i]
+            layer.weights = (1-lr*lb)*layer.weights - lr*gradient[i]
         
     def calcLoss(self, y, t):
         # weight decay needs to be reshaped to fit loss matrix shape
@@ -214,6 +232,21 @@ class ReLU():
         return x
     
     
+class LeakyReLU():
+    def __init(self):
+        pass
+    
+    def calc(self, x):
+        return np.maximum(0.1*x, x)
+        
+    def derivative(self, x):
+        return np.where(x > 0, 1, 0.1)
+    
+    def reverse(self, x):
+        raise(ValueError, "NOT IMPLIMENTED YET")
+        return 0
+    
+    
 class Linear():
     def __init(self):
         pass
@@ -241,7 +274,7 @@ class Sigmoid():
     
     def reverse(self, x):
         # Avoid issues with log and division by zero
-        x = np.clip(x, 1e-7, 1 - 1e-7)
+        x = np.clip(x, 1e-2, 1 - 1e-2)
         return np.log(x / (1 - x))
     
 """
@@ -255,43 +288,78 @@ class TanH():
     def derivative(self, x):
         return 1 - pow((np.exp(x) - np.exp(-x)) / (np.exp(x) + np.exp(-x)),2)
 """
+
+"""
+class Softmax():
+    def __init__(self):
+        pass
+    
+    def calc(self, x):
+        return 1 / (1 + np.exp(-x))
+        
+    def derivative(self, x):
+        sigmoid_x = self.calc(x)
+        return sigmoid_x * (1 - sigmoid_x)
+    
+    def reverse(self, x):
+        # Avoid issues with log and division by zero
+        x = np.clip(x, 1e-7, 1 - 1e-7)
+        return np.log(x / (1 - x))
+"""
         
 
-network = [{'inputs':1,  'nodes':10, 'activation': Sigmoid()},
-           {'inputs':10, 'nodes':10, 'activation': Sigmoid()},
-           {'inputs':10, 'nodes':1,   'activation': Linear()}]
+network = [{'inputs':2,  'nodes':100, 'activation': ReLU()},
+           {'inputs':100, 'nodes':100, 'activation': ReLU()},
+           {'inputs':100, 'nodes':100, 'activation': ReLU()},
+           {'inputs':100, 'nodes':1,  'activation': Sigmoid()}]
 
 
-test_nn = Network(structure=network, loss=RegressionLoss())
+test_nn = Network(structure=network, loss=ClassificationLoss())
 
-inputs_train0 = np.random.randint(-5,5,(100,1)) + np.random.rand(100,1)
-inputs_train1 = inputs_train0**2
-inputs_train = np.hstack((inputs_train0, inputs_train1))
-targets_train = np.sin(inputs_train0) + 2 * np.random.rand(100,1) - 1
+inputs_train00 = np.ones((100,1)) + np.random.randn(100,1)
+inputs_train01 = np.ones((100,1)) + np.random.randn(100,1)
+targets0 = np.zeros((100,1))
 
-inputs_validate0 = np.random.randint(-5,5,(100,1)) + np.random.rand(100,1)
-inputs_validate1 = inputs_validate0**2
-inputs_validate = np.hstack((inputs_validate0, inputs_validate1))
-targets_validate = np.sin(inputs_validate0) + 2 * np.random.rand(100,1) - 1
+inputs_train10 = 2*np.ones((100,1)) + np.random.randn(100,1)
+inputs_train11 = 2*np.ones((100,1)) + np.random.randn(100,1)
+target1 = np.ones((100,1))
+
+X = np.zeros((200,3))
+X[:,0] = np.concatenate([inputs_train00, inputs_train10]).T
+X[:,1] = np.concatenate([inputs_train01, inputs_train11]).T
+X[:,2] = np.concatenate([targets0, target1]).T
+
+np.random.shuffle(X)
 
 test_nn.train()
+
 
 for i in range(0,1000):
     print(f'epoch: {i}')
     test_nn.train()
-    out = test_nn.forward(inputs_train0, targets_train)
+    out = test_nn.forward(X[:,0:2], X[:,2])
     print('training loss:' + str(sum(test_nn.backprop.loss)))
     grad = test_nn.backward()
-    test_nn.sgd(grad)
+    test_nn.sgd(grad, lr=0.001, lb=0)
     
-    out = test_nn.forward(inputs_validate0, targets_validate)
-    print('validation loss:' + str(sum(test_nn.backprop.loss)))
-
-
+    
 test_nn.evaluate()
-out_plot = test_nn.forward(inputs_validate0)
-plt.scatter(inputs_train0, targets_train, color='y')
-plt.scatter(inputs_validate0, targets_validate, color='b')
-plt.scatter(inputs_validate0, out_plot, color='r')
+
+x11 = np.linspace(np.min(X[:,0]), np.max(X[:,0]), 10)
+x22 = np.linspace(np.min(X[:,1]), np.max(X[:,1]), 10)
+
+grid = np.meshgrid(x11,x22)
+positions = np.vstack([grid[0].ravel(), grid[1].ravel()]).T
+        
+db_inputs = np.asarray(positions)
+db_outs = test_nn.forward(db_inputs)
+
+x0 = X[np.where(X[:,2]==0),:]
+x1 = X[np.where(X[:,2]==1),:]
+z = db_outs.reshape((10,10))
+
+plt.scatter(x0[0][:,0], x0[0][:,1], color='y')
+plt.scatter(x1[0][:,0], x1[0][:,1], color='b')
+plt.contour(grid[0], grid[1], z, levels=[0.25, 0.5, 0.75])
 
         
