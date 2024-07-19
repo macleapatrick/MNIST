@@ -114,7 +114,6 @@ class Network():
             self.backprop.clear()
             
             self.backprop.postActivations.append(x)
-            self.backprop.preActivations.append(x)
             
             try:
                 self.targetSize = targets.shape[1]
@@ -155,8 +154,11 @@ class Network():
             
         #backpropogate deltas
         for layer in range(self.llayers-1,0,-1):
+            thisLayer = layer
+            previousLayer= layer - 1
+            
             #calculate forward prop activations through the derivative of the layers activation function
-            activations = self.layers[layer].activationFunction.derivative(self.backprop.preActivations[layer])
+            activations = self.layers[previousLayer].activationFunction.derivative(self.backprop.preActivations[previousLayer])
             
             #backprop deltas to previous layer
             deltaNextLayer = self.backprop.delta[0]
@@ -184,7 +186,7 @@ class Network():
                 
         return self.backprop.wGradient
     
-    def sgd(self, gradient, lr=0.001, lb=0):
+    def sgd(self, gradient, lr=0.0001, lb=0):
         for i, layer in enumerate(self.layers):
             if layer.weights.shape != gradient[i].shape:
                 raise(ValueError(f'{layer.weights.shape} not the same size as {gradient[i].shape}'))
@@ -251,13 +253,13 @@ class ActivationFunction():
     
     def reverse(self, x, a=None):
         xt = self.form(x)
-        if a: at = self.form(a)
+        if a is not None: at = self.form(a)
         return self._reverse(xt, at)
     
     def outputLayerDelta(self, y, t, a=None):
         yt = self.form(y)
         tt = self.form(t)
-        if a: a = self.form(a)
+        if a is not None: a = self.form(a)
             
         return self._outputLayerDelta(yt, tt, a)
     
@@ -372,7 +374,7 @@ class Softmax(ActivationFunction):
         raise(TypeError, 'Not completed')
     
     def _reverse(self, x, a): 
-        x = np.clip(x, 1e-5, 1 - 1e-5)
+        x = np.clip(x, 1e-2, 1 - 1e-2)
         
         if len(a.shape) == 1: 
             samples = 1 
@@ -382,14 +384,37 @@ class Softmax(ActivationFunction):
         return np.log(np.sum(np.exp(a), axis=len(a.shape)-1)).reshape(samples, 1) + np.log(x)
     
     def _outputLayerDelta(self, outputs, targets, activations):
-        return self._reverse(outputs, activations) - self._reverse(targets, activations)
+        # training softmax on direct output delta is much more stable than putting through reverse function
+        return outputs - targets
+    
+def encode(x):
+    samples = x.shape[0]
+    output_size = np.max(x) + 1
+    
+    encoded = np.zeros((int(samples), int(output_size)))
+    
+    for i, c in enumerate(x):
+        if c == 0:
+            encoded[i,0] = 1
+            encoded[i,1] = 0
+            encoded[i,2] = 0
+        if c == 1:
+            encoded[i,0] = 0
+            encoded[i,1] = 1
+            encoded[i,2] = 0
+        if c == 2:
+            encoded[i,0] = 0
+            encoded[i,1] = 0
+            encoded[i,2] = 1
+            
+    return encoded
 
         
 
-network = [{'inputs':2,  'nodes':100, 'activation':  LeakyReLU()},
-           {'inputs':100, 'nodes':100, 'activation': LeakyReLU()},
-           {'inputs':100, 'nodes':100, 'activation': LeakyReLU()},
-           {'inputs':100, 'nodes':1,  'activation':  Sigmoid()}]
+network = [{'inputs':2,  'nodes':20, 'activation': LeakyReLU()},
+           {'inputs':20, 'nodes':20, 'activation': LeakyReLU()},
+           {'inputs':20, 'nodes':20, 'activation': LeakyReLU()},
+           {'inputs':20, 'nodes':3,  'activation':  Softmax()}]
 
 
 test_nn = Network(structure=network, loss=ClassificationLoss())
@@ -398,39 +423,32 @@ inputs_train00 = np.ones((100,1)) + np.random.randn(100,1)
 inputs_train01 = np.ones((100,1)) + np.random.randn(100,1)
 targets0 = np.zeros((100,1))
 
-inputs_train10 = np.ones((100,1)) + np.random.randn(100,1)
+inputs_train10 = 3*np.ones((100,1)) + np.random.randn(100,1)
 inputs_train11 = np.ones((100,1)) + np.random.randn(100,1)
 target1 = np.ones((100,1))
 
-for i, n in enumerate(inputs_train10):
-    if n > 1:
-        inputs_train10[i] = n + 0.5
-    else:
-        inputs_train10[i] = n - 0.5
-        
-for i, n in enumerate(inputs_train11):
-    if n > 1:
-        inputs_train11[i] = n + 0.5
-    else:
-        inputs_train11[i] = n - 0.5
+inputs_train20 = np.ones((100,1)) + np.random.randn(100,1)
+inputs_train21 = 3*np.ones((100,1)) + np.random.randn(100,1)
+target2 = np.ones((100,1)) * 2
 
-X = np.zeros((200,3))
-X[:,0] = np.concatenate([inputs_train00, inputs_train10]).T
-X[:,1] = np.concatenate([inputs_train01, inputs_train11]).T
-X[:,2] = np.concatenate([targets0, target1]).T
+X = np.zeros((300,3))
+X[:,0] = np.concatenate([inputs_train00, inputs_train10, inputs_train20]).T
+X[:,1] = np.concatenate([inputs_train01, inputs_train11, inputs_train21]).T
+X[:,2] = np.concatenate([targets0, target1, target2]).T
+
 
 np.random.shuffle(X)
 
 test_nn.train()
 
 
-for i in range(0,100):
+for i in range(0,2000):
     print(f'epoch: {i}')
     test_nn.train()
-    out = test_nn.forward(X[:,0:2], X[:,2])
+    out = test_nn.forward(X[:,0:2], encode(X[:,2]))
     print('training loss:' + str(sum(test_nn.backprop.loss)))
     grad = test_nn.backward()
-    test_nn.sgd(grad, lr=0.001, lb=1)
+    test_nn.sgd(grad, lr=0.0001, lb=0)
     
     
 test_nn.evaluate()
@@ -444,12 +462,23 @@ positions = np.vstack([grid[0].ravel(), grid[1].ravel()]).T
 db_inputs = np.asarray(positions)
 db_outs = test_nn.forward(db_inputs)
 
+class1 = db_outs[:,0]
+class2 = db_outs[:,1]
+class3 = db_outs[:,2]
+
 x0 = X[np.where(X[:,2]==0),:]
 x1 = X[np.where(X[:,2]==1),:]
-z = db_outs.reshape((100,100))
+x2 = X[np.where(X[:,2]==2),:]
+z1 = class1.reshape((100,100))
+z2 = class2.reshape((100,100))
+z3 = class3.reshape((100,100))
 
 plt.scatter(x0[0][:,0], x0[0][:,1], color='y')
 plt.scatter(x1[0][:,0], x1[0][:,1], color='b')
-plt.contour(grid[0], grid[1], z, levels=[0.25, 0.5, 0.75])
+plt.scatter(x2[0][:,0], x2[0][:,1], color='r')
+
+plt.contour(grid[0], grid[1], z1, levels=[0.6], colors=['yellow'])
+plt.contour(grid[0], grid[1], z2, levels=[0.6], colors=['blue'])
+plt.contour(grid[0], grid[1], z3, levels=[0.6], colors=['red'])
 
         
