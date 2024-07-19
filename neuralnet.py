@@ -2,7 +2,7 @@ import numpy as np
 import copy
 import matplotlib.pyplot as plt
 
-class Layer():
+class LinearLayer():
     def __init__(self, input_size, nodes, activation=None, layerid=0, addBias=True):
         self.addBias = addBias
         
@@ -85,16 +85,22 @@ class Network():
         
         self.backprop = BackpropStructure()
         
+        #init layers
         for layer in range(self.llayers):
-            self.layers.append(Layer(input_size=structure[layer]['inputs'], 
-                                     nodes=structure[layer]['nodes'],
-                                     activation=structure[layer]['activation'],
-                                     layerid=layer,
-                                     addBias=True))
+            self.layers.append(LinearLayer(input_size=structure[layer]['inputs'], 
+                                           nodes=structure[layer]['nodes'],
+                                           activation=structure[layer]['activation'],
+                                           layerid=layer,
+                                           addBias=True))
             
     def forward(self, inputs, targets=None):
         
-        self.backprop.clear()
+        if not isinstance(inputs, np.ndarray):
+            raise(TypeError, f'{type(inputs)} not type ndarray')
+            
+        if not isinstance(targets, np.ndarray) and self.training: 
+            raise(TypeError, f'{type(targets)} not type ndarray')
+        
         self.batchSize = inputs.shape[0]
         
         try:
@@ -105,6 +111,8 @@ class Network():
         x = inputs
         
         if self.training:
+            self.backprop.clear()
+            
             self.backprop.postActivations.append(x)
             self.backprop.preActivations.append(x)
             
@@ -132,9 +140,14 @@ class Network():
         if self.training:
             outputs = outputs.reshape(self.batchSize, self.targetSize)
             targets = targets.reshape(self.batchSize, self.targetSize)
-
+            
             self.backprop.loss = self.calcLoss(outputs, targets)
-            self.backprop.delta.append(layer.activationFunction.reverse(outputs) - layer.activationFunction.reverse(targets))
+            
+            if isinstance(layer.activationFunction, Softmax):
+                #softmax requires preactivations for inversions
+                self.backprop.delta.append(layer.activationFunction.outputLayerDelta(outputs, targets, self.backprop.preActivations[-1]))
+            else:
+                self.backprop.delta.append(layer.activationFunction.outputLayerDelta(outputs, targets))
 
         return outputs
     
@@ -190,16 +203,13 @@ class Network():
 
     def train(self):
         self.training = True
-        self.loss = np.empty(0)
+        self.backprop.clear()
         return 1
 
     def evaluate(self):
         self.training = False
-        self.loss = np.empty(0)
+        self.backprop.clear()
         return 1
-    
-    def weightDecayLoss(self, l=2):
-        return 0
 
 
 class RegressionLoss():
@@ -208,7 +218,7 @@ class RegressionLoss():
     
     def loss(self, y, t):
         if y.shape == t.shape:
-            #squared loss
+            #mean squared loss
             return 1/2 * pow(y-t,2)
         else:
             raise(f'loss cannot be calculated across {y.shape} and {t.shape}')
@@ -224,102 +234,155 @@ class ClassificationLoss():
             return -(t*np.log(y) + (1-t)*np.log(1-y))
         else:
             raise(f'loss cannot be calculated across {y.shape} and {t.shape}')
+           
             
-
-class ReLU():
-    def __init(self):
-        pass
-    
-    def calc(self, x):
-        return np.maximum(0, x)
-        
-    def derivative(self, x):
-        return np.where(x > 0, 1, 0)
-    
-    def reverse(self, x):
-        return x
-    
-    
-class LeakyReLU():
-    def __init(self):
-        pass
-    
-    def calc(self, x):
-        return np.maximum(0.1*x, x)
-        
-    def derivative(self, x):
-        return np.where(x > 0, 1, 0.1)
-    
-    def reverse(self, x):
-        raise(ValueError, "NOT IMPLIMENTED YET")
-        return 0
-    
-    
-class Linear():
-    def __init(self):
-        pass
-    
-    def calc(self, x):
-        return x
-        
-    def derivative(self, x):
-        return np.ones(x.shape)
-    
-    def reverse(self, x):
-        return x
-    
-    
-class Sigmoid():
+class ActivationFunction():
+    # Container class for activation functions
     def __init__(self):
         pass
     
     def calc(self, x):
+        xt = self.form(x)
+        return self._calc(xt)
+    
+    def derivative(self, x):
+        xt = self.form(x)
+        return self._derivative(xt)
+    
+    def reverse(self, x, a=None):
+        xt = self.form(x)
+        at = self.form(a)
+        return self._reverse(xt, at)
+    
+    def outputLayerDelta(self, y, t, a=None):
+        yt, tt, at = self.form(y), self.form(t), self.form(a)
+            
+        return self._outputLayerDelta(yt, tt, at)
+    
+    def form(self, x):
+        # add preprocessing steps for data
+        return x
+
+
+class ReLU(ActivationFunction):
+    def __init(self):
+        super().__init__()
+    
+    def _calc(self, x):
+        return np.maximum(0, x)
+        
+    def _derivative(self, x):
+        return np.where(x > 0, 1, 0)
+    
+    def _reverse(self, x, a=None):
+        return x
+    
+    def _outputLayerDelta(self, outputs, targets, activations):
+        return self._reverse(outputs) - self._reverse(targets)
+    
+    
+class LeakyReLU(ActivationFunction):
+    def __init(self):
+        super().__init__()
+    
+    def _calc(self, x):
+        return np.maximum(0.1*x, x)
+        
+    def _derivative(self, x):
+        return np.where(x > 0, 1, 0.1)
+    
+    def _reverse(self, x, a=None):
+        raise(ValueError, "NOT IMPLIMENTED YET")
+        return 0
+    
+    def _outputLayerDelta(self, outputs, targets, activations):
+        return self._reverse(outputs) - self._reverse(targets)
+    
+    
+class Linear(ActivationFunction):
+    def __init(self):
+        super().__init__()
+    
+    def _calc(self, x):
+        return x
+        
+    def _derivative(self, x):
+        return np.ones(x.shape)
+    
+    def _reverse(self, x, a=None):
+        return x
+    
+    def _outputLayerDelta(self, outputs, targets, activations):
+        return self._reverse(outputs) - self._reverse(targets)
+    
+    
+class Sigmoid(ActivationFunction):
+    def __init__(self):
+        super().__init__()
+    
+    def _calc(self, x):
         return 1 / (1 + np.exp(-x))
         
-    def derivative(self, x):
+    def _derivative(self, x):
         sigmoid_x = self.calc(x)
         return sigmoid_x * (1 - sigmoid_x)
     
-    def reverse(self, x):
+    def _reverse(self, x, a=None):
         # Avoid issues with log and division by zero
         x = np.clip(x, 1e-2, 1 - 1e-2)
         return np.log(x / (1 - x))
     
-"""
-class TanH():
-    def __init(self):
-        pass
+    def _outputLayerDelta(self, outputs, targets, activations):
+        return self._reverse(outputs) - self._reverse(targets)
     
-    def calc(self, x):
+    
+class TanH(ActivationFunction):
+    def __init(self):
+        super().__init__()
+    
+    def _calc(self, x):
         return (np.exp(x) - np.exp(-x)) / (np.exp(x) + np.exp(-x))
         
-    def derivative(self, x):
+    def _derivative(self, x):
         return 1 - pow((np.exp(x) - np.exp(-x)) / (np.exp(x) + np.exp(-x)),2)
-"""
+    
+    def _reverse(self, x, a=None):
+        raise(TypeError, 'Not completed')
+        
+    def _outputLayerDelta(self, outputs, targets, activations):
+        return self._reverse(outputs) - self._reverse(targets)
 
-"""
-class Softmax():
+
+class Softmax(ActivationFunction):
     def __init__(self):
-        pass
+        super().__init__()
     
-    def calc(self, x):
-        return 1 / (1 + np.exp(-x))
-        
-    def derivative(self, x):
-        sigmoid_x = self.calc(x)
-        return sigmoid_x * (1 - sigmoid_x)
+    def _calc(self, x):
+        try:
+            return np.transpose(np.exp(x).T / np.sum(np.exp(x), axis=1))
+        except:
+            return np.transpose(np.exp(x).T / np.sum(np.exp(x), axis=0))
+            
+    def _derivative(self, x):
+        # dont need derivative unless softmax is in a hidden layer
+        raise(TypeError, 'Not completed')
     
-    def reverse(self, x):
-        # Avoid issues with log and division by zero
-        x = np.clip(x, 1e-7, 1 - 1e-7)
-        return np.log(x / (1 - x))
-"""
+    def _reverse(self, x, a): 
+        x = np.clip(x, 1e-2, 1 - 1e-2)
+        try:
+            return np.log(np.sum(np.exp(a), axis=1)) + np.log(x)
+        except:
+            return np.log(np.sum(np.exp(a), axis=0)) + np.log(x)
+    
+    def _outputLayerDelta(self, outputs, targets, activations):
+        return self._reverse(outputs, activations) - self._reverse(targets, activations)
+
         
 
-network = [{'inputs':2,  'nodes':100, 'activation': ReLU()},
-           {'inputs':100, 'nodes':100, 'activation': ReLU()},
-           {'inputs':100, 'nodes':100, 'activation': ReLU()},
-           {'inputs':100, 'nodes':1,  'activation': Sigmoid()}]
+network = [{'inputs':2,  'nodes':100, 'activation':  LeakyReLU()},
+           {'inputs':100, 'nodes':100, 'activation': LeakyReLU()},
+           {'inputs':100, 'nodes':100, 'activation': LeakyReLU()},
+           {'inputs':100, 'nodes':1,  'activation':  Sigmoid()}]
 
 
 test_nn = Network(structure=network, loss=ClassificationLoss())
@@ -354,7 +417,7 @@ np.random.shuffle(X)
 test_nn.train()
 
 
-for i in range(0,250):
+for i in range(0,10):
     print(f'epoch: {i}')
     test_nn.train()
     out = test_nn.forward(X[:,0:2], X[:,2])
