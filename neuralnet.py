@@ -251,16 +251,23 @@ class ActivationFunction():
     
     def reverse(self, x, a=None):
         xt = self.form(x)
-        at = self.form(a)
+        if a: at = self.form(a)
         return self._reverse(xt, at)
     
     def outputLayerDelta(self, y, t, a=None):
-        yt, tt, at = self.form(y), self.form(t), self.form(a)
+        yt = self.form(y)
+        tt = self.form(t)
+        if a: a = self.form(a)
             
-        return self._outputLayerDelta(yt, tt, at)
+        return self._outputLayerDelta(yt, tt, a)
     
     def form(self, x):
-        # add preprocessing steps for data
+        if not isinstance(x, (list, np.ndarray)):
+            raise(TypeError(f'{type(x)} not data type list or ndarray'))
+            
+        if isinstance(x, list):
+            x = np.array(x)
+            
         return x
 
 
@@ -358,21 +365,21 @@ class Softmax(ActivationFunction):
         super().__init__()
     
     def _calc(self, x):
-        try:
-            return np.transpose(np.exp(x).T / np.sum(np.exp(x), axis=1))
-        except:
-            return np.transpose(np.exp(x).T / np.sum(np.exp(x), axis=0))
+        return np.transpose(np.exp(x).T / np.sum(np.exp(x), axis=len(x.shape)-1))
             
     def _derivative(self, x):
         # dont need derivative unless softmax is in a hidden layer
         raise(TypeError, 'Not completed')
     
     def _reverse(self, x, a): 
-        x = np.clip(x, 1e-2, 1 - 1e-2)
-        try:
-            return np.log(np.sum(np.exp(a), axis=1)) + np.log(x)
-        except:
-            return np.log(np.sum(np.exp(a), axis=0)) + np.log(x)
+        x = np.clip(x, 1e-5, 1 - 1e-5)
+        
+        if len(a.shape) == 1: 
+            samples = 1 
+        else: 
+            samples = len(a)
+            
+        return np.log(np.sum(np.exp(a), axis=len(a.shape)-1)).reshape(samples, 1) + np.log(x)
     
     def _outputLayerDelta(self, outputs, targets, activations):
         return self._reverse(outputs, activations) - self._reverse(targets, activations)
@@ -417,7 +424,7 @@ np.random.shuffle(X)
 test_nn.train()
 
 
-for i in range(0,10):
+for i in range(0,100):
     print(f'epoch: {i}')
     test_nn.train()
     out = test_nn.forward(X[:,0:2], X[:,2])
