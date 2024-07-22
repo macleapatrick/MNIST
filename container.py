@@ -1,5 +1,3 @@
-import torch
-
 class ImageFile():
     def __init__(self, file):
         self.file = file
@@ -18,6 +16,8 @@ class ImageFile():
 
             for _ in range(length):
                 self.data.append([x for x in file.read(size)])
+
+            return self.data
 
     def bytes_to_int(self, bytes):
         return int.from_bytes(bytes, byteorder="big")
@@ -41,6 +41,8 @@ class LabelFile():
             for _ in range(length):
                 label = self.bytes_to_int(file.read(1))
                 self.data.append([x == label for x in range(10)])
+
+            return self.data
 
     def bytes_to_int(self, bytes):
         return int.from_bytes(bytes, byteorder="big")

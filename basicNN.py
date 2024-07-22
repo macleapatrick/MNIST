@@ -410,7 +410,7 @@ def encode(x):
     return encoded
 
         
-
+"""
 network = [{'inputs':2,  'nodes':20, 'activation': LeakyReLU()},
            {'inputs':20, 'nodes':20, 'activation': LeakyReLU()},
            {'inputs':20, 'nodes':20, 'activation': LeakyReLU()},
@@ -480,5 +480,5 @@ plt.scatter(x2[0][:,0], x2[0][:,1], color='r')
 plt.contour(grid[0], grid[1], z1, levels=[0.6], colors=['yellow'])
 plt.contour(grid[0], grid[1], z2, levels=[0.6], colors=['blue'])
 plt.contour(grid[0], grid[1], z3, levels=[0.6], colors=['red'])
-
+"""
         
